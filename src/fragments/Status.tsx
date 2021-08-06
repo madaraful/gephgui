@@ -13,21 +13,21 @@ const SECONDS = 300;
 
 const Status = (props: {}) => {
   const [deltaStats, setDeltaStats] = useState([]);
-  const [rawStats, setRawStats] = useState([]);
   const [minX, setMinX] = useState(
     new Date(new Date().getTime() - SECONDS * 1000)
   );
 
+  // HACK: forces the whole thing to reload periodically to workaround metricsgraphics memory leak
+  const [hackKey, setHackKey] = useState(0);
+
   const refreshStats = async () => {
     try {
       const deltaResponse = await axios.get("http://127.0.0.1:9809/deltastats");
-      const rawResponse = await axios.get("http://127.0.0.1:9809/rawstats");
       const deltaData = deltaResponse.data
         .map((item) => {
           item.date = new Date(item.time.secs_since_epoch * 1000);
-          if (item.loss) {
-            item.loss *= 100.0;
-          }
+          item.recv_speed *= 8;
+          item.send_speed *= 8;
           delete item.time;
           return item;
         })
@@ -36,23 +36,10 @@ const Status = (props: {}) => {
             Math.abs(item.date.getTime() - new Date().getTime()) <
             SECONDS * 1000
         );
-      const rawData = rawResponse.data
-        .map((item) => {
-          item.date = new Date(item.time.secs_since_epoch * 1000);
-          item.loss *= 100.0;
-          delete item.time;
-          return item;
-        })
-        .filter(
-          (item) =>
-            Math.abs(item.date.getTime() - new Date().getTime()) <
-            SECONDS * 1000
-        );
+      console.log(deltaData);
       setDeltaStats(deltaData);
-      setRawStats(rawData);
     } catch {
       setDeltaStats([]);
-      setRawStats([]);
     }
   };
 
@@ -62,9 +49,8 @@ const Status = (props: {}) => {
   }, SECONDS * 7.0);
 
   useInterval(() => {
-    window.onbeforeunload = null;
-    window.location.reload();
-  }, 600 * 1000);
+    setHackKey(hackKey + 1);
+  }, 6 * 1000);
 
   useEffect(() => {
     (window as any).$ = $;
@@ -79,11 +65,8 @@ const Status = (props: {}) => {
   };
 
   const l10n = useSelector(l10nSelector);
-
-  const lossed = deltaStats.filter((v: any) => v.loss !== null);
-
   return (
-    <>
+    <div key={hackKey}>
       <h3 style={titleStyle}>{l10n.usage}</h3>
       <MetricsGraphics
         data={deltaStats}
@@ -93,10 +76,10 @@ const Status = (props: {}) => {
         x_accessor="date"
         x_extended_ticks
         y_accessor={["recv_speed", "send_speed"]}
-        baselines={[{ value: 200, label: l10n.freelimit }]}
+        baselines={[{ value: 1677722, label: l10n.freelimit }]}
         min_x={minX}
         max_x={new Date(minX.getTime() + SECONDS * 1000)}
-        yax_units="pps"
+        yax_units="bps"
         yax_units_append
         inflator={1.6}
         left={70}
@@ -111,28 +94,28 @@ const Status = (props: {}) => {
 
       <h3 style={titleStyle}>{l10n.latency}</h3>
       <MetricsGraphics
-        data={rawStats}
+        data={deltaStats}
         full_width
         height={150}
         transition_on_update={false}
         x_accessor="date"
         x_extended_ticks
-        y_accessor={["smooth_ping"]}
+        y_accessor={["ping"]}
         min_x={minX}
         max_x={new Date(minX.getTime() + SECONDS * 1000)}
         left={70}
         animate_on_load={true}
         yax_units="ms"
         yax_units_append
-        interpolate={curveStep}
+        interpolate={curveMonotoneX}
         top={0}
         colors={["#007bbb"]}
-        chart_type={rawStats.length > 0 ? "line" : "missing-data"}
+        chart_type={deltaStats.length > 0 ? "line" : "missing-data"}
       />
 
       <h3 style={titleStyle}>{l10n.packetLossEstimation}</h3>
       <MetricsGraphics
-        data={lossed}
+        data={deltaStats}
         full_width
         height={150}
         transition_on_update={false}
@@ -147,9 +130,10 @@ const Status = (props: {}) => {
         animate_on_load={true}
         top={0}
         colors={["red"]}
-        chart_type={lossed.length > 0 ? "point" : "missing-data"}
+        interpolate={curveStep}
+        chart_type={deltaStats.length > 0 ? "line" : "missing-data"}
       />
-    </>
+    </div>
   );
 };
 export default Status;

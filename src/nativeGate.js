@@ -33,22 +33,25 @@ export function getVersion() {
   return "0.0.0";
 }
 
+export function electronTempDirectory() {
+  const { app } = window.require("electron").remote;
+  return app.getPath("temp");
+}
+
 var globl10n;
 
 // export the logs.
 export function exportLogs() {
   const lala = new Date().toISOString().replaceAll(":", "-");
-  let fname = "debugpack-" + lala + ".tar";
+  let fname = "debuglogs-" + lala + ".txt";
   if (platform === "electron") {
     const { ipcRenderer } = window.require("electron");
     // download file into that path
-    ipcRenderer.send("download", {
-      url: "http://127.0.0.1:9809/debugpack",
-      properties: { filename: fname, saveAs: true },
+    ipcRenderer.send("exportLogs", {
+      filename: localStorage.getItem("logFile"),
     });
   } else {
     window.Android.jsExportLogs(fname);
-    alert("Saved to Downloads");
   }
 }
 
@@ -81,6 +84,7 @@ export function startUpdateChecks(l10n) {
     async function checkForUpdates() {
       const updateURLs = [
         "https://gitlab.com/bunsim/geph-autoupdate/raw/master/stable.json",
+        "https://f001.backblazeb2.com/file/geph4-dl/stable.json",
       ];
       if (/TEST/.test(currentVersion)) {
         return;
@@ -90,7 +94,9 @@ export function startUpdateChecks(l10n) {
       }
 
       try {
-        let response = await axios.get(updateURLs[0]);
+        let response = await axios.get(
+          updateURLs[Math.floor(Math.random() * updateURLs.length)]
+        );
         let data = response.data;
         let meta = data[getOsName()];
         if (semver.gt(meta.Latest, currentVersion) && !dialogShowed) {
@@ -291,6 +297,10 @@ export async function startDaemon(
   if (daemonRunning()) {
     throw "daemon started when it really shouldn't be";
   }
+  const lala = new Date().toISOString().replaceAll(":", "-");
+  let logFile = electronTempDirectory() + `/geph4-logs-${lala}.txt`;
+  localStorage.setItem("logFile", logFile);
+
   let daemonPID = spawn(
     getBinaryPath() + "geph4-client" + (isOSWin64() ? "64" : "") + binExt(),
     [
@@ -305,6 +315,8 @@ export async function startDaemon(
       listenAll ? "0.0.0.0:9909" : "127.0.0.1:9909",
       "--http-listen",
       listenAll ? "0.0.0.0:9910" : "127.0.0.1:9910",
+      "--log-file",
+      logFile,
     ]
       .concat(forceBridges ? ["--use-bridges"] : [])
       .concat(useTCP ? ["--use-tcp"] : [])
@@ -376,6 +388,9 @@ async function startDaemonVpn(
     alert("VPN mode only supported on Linux and Windows");
     return;
   }
+  const lala = new Date().toISOString().replaceAll(":", "-");
+  let logFile = electronTempDirectory() + `/geph4-logs-${lala}.txt`;
+  localStorage.setItem("logFile", logFile);
 
   let isUnix = os.platform() !== "win32";
 
@@ -400,6 +415,8 @@ async function startDaemonVpn(
       listenAll ? "0.0.0.0:9909" : "127.0.0.1:9909",
       "--http-listen",
       listenAll ? "0.0.0.0:9910" : "127.0.0.1:9910",
+      "--log-file",
+      logFile,
     ]
       .concat(forceBridges ? ["--use-bridges"] : [])
       .concat(useTCP ? ["--use-tcp"] : [])
@@ -409,12 +426,13 @@ async function startDaemonVpn(
               "--dns-listen",
               "127.0.0.1:15353",
               "--credential-cache",
-              "/tmp/geph4-credentials",
+              "/tmp/geph4-ngcreds",
             ]
           : []
       ),
     { detached: false }
   );
+  console.log(pid);
   pid.stdout.on("data", (data) => {
     console.log(`geph4-vpn-helper stdout: ${data}`);
   });
